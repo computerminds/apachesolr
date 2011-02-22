@@ -815,6 +815,16 @@ function apachesolr_search_apachesolr_facets() {
         'facet_field' => $index_key,
         'content_types' => $field_info['bundles'],
     ) + $field_info;
+
+    // If we're a single hierarchical vocabulary, declare as such.
+    $vocabs = $field_info['field']['settings']['allowed_values'];
+    if ((count($vocabs) == 1)) {
+      $vocab = array_shift($vocabs);
+      $vocab = taxonomy_vocabulary_machine_name_load($vocab['vocabulary']);
+      if ($vocab->hierarchy == 1) {
+        $facets[$index_key]['hierarchical'] = TRUE;
+      }
+    }
   }
 
   return $facets;
@@ -930,12 +940,19 @@ function apachesolr_search_collect_children($field) {
 function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterface $query, $module, $delta, $filter_by, $facet_callback = FALSE, $field_info = NULL) {
   if (!empty($response->facet_counts->facet_fields->$delta)) {
     $facet_query_sorts = variable_get('apachesolr_facet_query_sorts', array());
-    $sort_setting = isset($facet_query_sorts[$module][$delta]) ? $facet_query_sorts[$module][$delta] : 'index asc';
-
+    $sort_setting = isset($facet_query_sorts[$module][$delta]) ? $facet_query_sorts[$module][$delta] : 'weight asc';
+    $facet_info = apachesolr_get_facet_definition_by_field_name($delta);
 
     // If we're not a single hierarchical vocabulary, or not enabled to be so, fall through to default handling.
-    $vocabs = $field_info['field']['settings']['allowed_values'];
-    if ((count($vocabs) > 1) || ($sort_setting != 'hierarchical')) {
+    $children = variable_get('apachesolr_facet_show_children', array());
+    if (isset($children[$module][$delta]) && $children[$module][$delta] == APACHESOLR_SHOW_CHILDREN_WITHOUT_HIERARCHY) {
+      $show_hierarchy = FALSE;
+    }
+    else {
+      $vocabs = $field_info['field']['settings']['allowed_values'];
+      $show_hierarchy = isset($facet_info['hierarchical']) ? $facet_info['hierarchical'] : FALSE;
+    }
+    if ((count($vocabs) > 1) || !$show_hierarchy) {
       return apachesolr_facet_block($response, $query, $module, $delta, $filter_by, $facet_callback, $field_info);
     }
 
@@ -1115,7 +1132,7 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
       // If this block is to be alphabetically/numerically sorted by value, change $sortpre.
       $sortpre = $facet_text;
     }
-    elseif (isset($facet_query_sorts['apachesolr_search'][$field_name]) && ($facet_query_sorts['apachesolr_search'][$field_name] == 'hierarchical')) {
+    elseif (isset($facet_query_sorts['apachesolr_search'][$field_name]) && strpos($facet_query_sorts['apachesolr_search'][$field_name], 'weight') === 0) {
       $sortpre = $field['#weight'];
     }
     else {
@@ -1123,12 +1140,15 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
     }
 
     // Only display children if the block enables it or the parent is clicked.
-    if ((isset($facet_show_children['apachesolr_search'][$field_name]) && $facet_show_children['apachesolr_search'][$field_name]) || (!empty($field['#children']) && $field['#active'] == TRUE)) {
-      $link['children'] = apachesolr_search_nested_facet_items($query, $field['#children'], $num_found, $sort);
-      $link['class'][] = "expanded-facet";
-    }
-    elseif (!empty($field['#has_children'])) {
-      $link['class'][] = "collapsed";
+    if (isset($facet_show_children['apachesolr_search'][$field_name]) && $facet_show_children['apachesolr_search'][$field_name] != APACHESOLR_SHOW_CHILDREN_WITHOUT_HIERARCHY) {
+      if ($facet_show_children['apachesolr_search'][$field_name] == APACHESOLR_SHOW_CHILDREN_ALWAYS || (!empty($field['#children']) && $field['#active'] == TRUE)) {
+        $children = (!empty($field['#children'])) ? $field['#children'] : array();
+        $link['children'] = apachesolr_search_nested_facet_items($query, $children, $num_found, $sort);
+        $link['class'][] = "expanded-facet";
+      }
+      elseif (!empty($field['#has_children'])) {
+        $link['class'][] = "collapsed";
+      }
     }
     $items[$sortpre . '*' . $facet_text . $field['#name'] . $field['#value']] = $link;
   }
@@ -1143,10 +1163,12 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
         break;
       case 'index desc':
       case 'index key desc':
+      case 'weight desc':
         krsort($items, SORT_STRING);
         break;
       case 'index asc':
       case 'index key asc':
+      case 'weight asc':
       default:
         ksort($items, SORT_STRING);
         break;

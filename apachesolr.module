@@ -9,6 +9,11 @@
 define('APACHESOLR_READ_WRITE', 0);
 define('APACHESOLR_READ_ONLY', 1);
 
+// Display modes for child facets in a hierarchy.
+define('APACHESOLR_SHOW_CHILDREN_WHEN_SELECTED', 0);
+define('APACHESOLR_SHOW_CHILDREN_ALWAYS', 1);
+define('APACHESOLR_SHOW_CHILDREN_WITHOUT_HIERARCHY', 2);
+
 /**
  * Implements hook_menu().
  */
@@ -1019,6 +1024,17 @@ function apachesolr_form_block_admin_configure_alter(&$form, $form_state) {
 
   $facet_info = apachesolr_get_facet_definitions();
 
+  // If this facet is hierarchical, add option to disregard hierarchy, and clarify other options.
+  if (isset($facet_info[$module][$delta]['hierarchical']) && $facet_info[$module][$delta]['hierarchical'] == TRUE) {
+    $form['settings']['apachesolr_facet_show_children']['#title'] = t('Child facet display mode');
+    $form['settings']['apachesolr_facet_show_children']['#description'] = t('Parent/child facets may be shown in a hierarchy. Select how to show children. Hierarchy may not show in full when using the AND operator for this facet.');
+    $form['settings']['apachesolr_facet_show_children']['#options'] = array(
+      APACHESOLR_SHOW_CHILDREN_WITHOUT_HIERARCHY => t('Show children without using a hierarchy'),
+      APACHESOLR_SHOW_CHILDREN_WHEN_SELECTED => t('Only show in hierarchy if parent facet is selected (default)'),
+      APACHESOLR_SHOW_CHILDREN_ALWAYS => t('Always show in hierarchy'),
+    );
+  }
+
   if (isset($facet_info[$module][$delta]['content_types'])) {
     $type_filter_settings = variable_get('apachesolr_type_filter', array());
     // Set up some variables for the verbiage of the form element.
@@ -1034,6 +1050,7 @@ function apachesolr_form_block_admin_configure_alter(&$form, $form_state) {
       '#weight' => 11,
     );
   }
+
   $operator_settings = variable_get('apachesolr_operator', array());
   $form['block_settings']['apachesolr_operator'] = array(
     '#type' => 'radios',
@@ -1157,10 +1174,12 @@ function apachesolr_facet_block($response, DrupalSolrQueryInterface $query, $mod
           break;
         case 'index desc':
         case 'index key desc':
+        case 'weight desc':
           krsort($items, SORT_STRING);
           break;
         case 'index asc':
         case 'index key asc':
+        case 'weight asc':
         default:
           ksort($items, SORT_STRING);
           break;
@@ -1464,13 +1483,14 @@ function apachesolr_facetcount_form($module, $delta) {
         'index numeric desc' => t('Numeric, descending'),
         'index key asc' => t('Key sort, ascending'),
         'index key desc' => t('Key sort, descending'),
-        'hierarchical' => t('Hierarchical'),
+        'weight asc' => t('Weight, ascending'),
+        'weight desc' => t('Weight, descending'),
       ),
-      '#description' => t('The sort order of facet links in this block. %Count, which is the default, will show facets with the most results first. %Alphabetical will sort alphabetically, and %Numeric numerically, either ascending or descending. %Hierarchical sorting is only supported on certain fields and may produce unspecified results on other fields.', array(
+      '#description' => t('The sort order of facet links in this block. %Count, which is the default, will show facets with the most results first. %Alphabetical will sort alphabetically, and %Numeric numerically, either ascending or descending. %Weight sorting is only supported on fields with weights (currently only taxonomy) and may produce unspecified results on other fields.', array(
         '%Count' => t('Count'),
         '%Alphabetical' => t('Alphanumeric'),
         '%Numeric' => t('Numeric'),
-        '%Hierarchical' => t('Hierarchical'),
+        '%Weight' => t('Weight'),
       )),
       '#default_value' => isset($sorts[$module][$delta]) ? $sorts[$module][$delta] : 'count',
     );
@@ -1478,9 +1498,9 @@ function apachesolr_facetcount_form($module, $delta) {
   $form['apachesolr_facet_show_children'] = array(
     '#type' => 'radios',
     '#title' => t('Always show child facets'),
-    '#options' => array(0 => t('No'), 1 => t('Yes')),
+    '#options' => array(APACHESOLR_SHOW_CHILDREN_WHEN_SELECTED => t('No'), APACHESOLR_SHOW_CHILDREN_ALWAYS => t('Yes')),
     '#description' => t('Show the child facets even if the parent facet is not selected.'),
-    '#default_value' => isset($children[$module][$delta]) ? $children[$module][$delta] : 0,
+    '#default_value' => isset($children[$module][$delta]) ? $children[$module][$delta] : APACHESOLR_SHOW_CHILDREN_WHEN_SELECTED,
   );
   $form['apachesolr_facet_missing'] = array(
     '#type' => 'radios',
