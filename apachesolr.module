@@ -1071,7 +1071,7 @@ function apachesolr_block_admin_configure_submit($form, &$form_state) {
  *
  * The $delta param is the Solr index field name.
  */
-function apachesolr_facet_block($response, DrupalSolrQueryInterface $query, $module, $delta, $filter_by, $facet_callback = FALSE) {
+function apachesolr_facet_block($response, DrupalSolrQueryInterface $query, $module, $delta, $filter_by, $facet_callback = FALSE, $field_info = NULL) {
   if (!empty($response->facet_counts->facet_fields->$delta)) {
     $facet_query_sorts = variable_get('apachesolr_facet_query_sorts', array());
     $contains_active = FALSE;
@@ -1464,11 +1464,13 @@ function apachesolr_facetcount_form($module, $delta) {
         'index numeric desc' => t('Numeric, descending'),
         'index key asc' => t('Key sort, ascending'),
         'index key desc' => t('Key sort, descending'),
+        'hierarchical' => t('Hierarchical'),
       ),
-      '#description' => t('The sort order of facet links in this block. %Count, which is the default, will show facets with the most results first. %Alphabetical will sort alphabetically, and %Numeric numerically, either ascending or descending.', array(
+      '#description' => t('The sort order of facet links in this block. %Count, which is the default, will show facets with the most results first. %Alphabetical will sort alphabetically, and %Numeric numerically, either ascending or descending. %Hierarchical sorting is only supported on certain fields and may produce unspecified results on other fields.', array(
         '%Count' => t('Count'),
         '%Alphabetical' => t('Alphanumeric'),
         '%Numeric' => t('Numeric'),
+        '%Hierarchical' => t('Hierarchical'),
       )),
       '#default_value' => isset($sorts[$module][$delta]) ? $sorts[$module][$delta] : 'count',
     );
@@ -2445,6 +2447,7 @@ function field_apachesolr_field_mappings() {
       'display_callback' => 'apachesolr_taxonomy_get_term',
       'indexing_callback' => 'apachesolr_term_reference_indexing_callback',
       'index_type' => 'integer',
+      'facet_block_callback' => 'apachesolr_search_taxonomy_facet_block',
     ),
   );
 

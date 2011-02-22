@@ -885,7 +885,7 @@ function apachesolr_search_block_view($delta = '') {
             $field_info = $fields[$delta];
             $callback = $field_info['display_callback'] ? $field_info['display_callback'] : FALSE;
             $block_function = ($field_info['facet_block_callback'] && function_exists($field_info['facet_block_callback'])) ? $field_info['facet_block_callback'] : 'apachesolr_facet_block';
-            return $block_function($response, $query, 'apachesolr_search', $delta, t('Filter by @field', array('@field' => $field_info['display_name'])), $callback);
+            return $block_function($response, $query, 'apachesolr_search', $delta, t('Filter by @field', array('@field' => $field_info['display_name'])), $callback, $field_info);
           }
         }
         break;
@@ -922,6 +922,121 @@ function apachesolr_search_collect_children($field) {
     }
   }
   return $remove;
+}
+
+/**
+ * Generate the facet block for a taxonomy vid delta.
+ */
+function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterface $query, $module, $delta, $filter_by, $facet_callback = FALSE, $field_info = NULL) {
+  if (!empty($response->facet_counts->facet_fields->$delta)) {
+    $facet_query_sorts = variable_get('apachesolr_facet_query_sorts', array());
+    $sort_setting = isset($facet_query_sorts[$module][$delta]) ? $facet_query_sorts[$module][$delta] : 'index asc';
+
+
+    // If we're not a single hierarchical vocabulary, or not enabled to be so, fall through to default handling.
+    $vocabs = $field_info['field']['settings']['allowed_values'];
+    if ((count($vocabs) > 1) || ($sort_setting != 'hierarchical')) {
+      return apachesolr_facet_block($response, $query, $module, $delta, $filter_by, $facet_callback, $field_info);
+    }
+
+    // Get the vid.
+    $vocab = array_shift($vocabs);
+    $vid = $vocab['vocabulary'];
+
+    $contains_active = FALSE;
+    $items = array();
+
+
+    foreach ($response->facet_counts->facet_fields->$delta as $tid => $count) {
+       // TODO - for now we don't handle facet missing.
+      if ($tid != '_empty_') {
+        $active = $query->has_filter($delta, $tid);
+        if ($active) {
+          $contains_active = TRUE;
+        }
+        $facets[$tid] = array(
+          '#name' => $delta,
+          '#value' => $tid,
+          '#exclude' => FALSE,
+          '#count' => $count,
+          '#parent' => 0,
+          '#children' => array(),
+          '#has_children' => FALSE,
+          '#active' => $active,
+        );
+      }
+    }
+
+    if ($facets) {
+      $tids = array_keys($facets);
+      // @todo: faster as 2x separate queries?
+      $result = db_query("SELECT tid, parent FROM {taxonomy_term_hierarchy} WHERE parent > 0 AND (tid IN (:tids) OR parent IN (:tids))", array(':tids' => $tids));
+      foreach ($result as $term) {
+        // Mark all terms that are parents for later CSS class.
+        // We assume data in the Solr index is complete - potential for some
+        // breakage here.
+        if (isset($facets[$term->parent])) {
+          $facets[$term->parent]['#has_children'] = TRUE;
+          if (isset($facets[$term->tid])) {
+            $facets[$term->tid]['#parent'] = $term->parent;
+            // Use a reference so we see the updated data.
+            $facets[$term->parent]['#children'][] = &$facets[$term->tid];
+          }
+        }
+      }
+
+      // Check for the case like starting on a taxonomy/term/$tid page
+      // where parents are not marked as active.
+      // TODO: can we make this more efficient?
+      do {
+        $added_active = FALSE;
+        foreach ($facets as $tid => $field) {
+          if ($field['#active'] && $field['#parent'] && !$facets[$field['#parent']]['#active']) {
+            // This parent has an active child.
+            $added_active = TRUE;
+            $query->add_filter($delta, $field['#parent']);
+            $facets[$field['#parent']]['#active'] = TRUE;
+          }
+        }
+      } while ($added_active);
+
+      // Add the weights to the terms for sorting.
+      $result = db_query("SELECT tid, weight FROM {taxonomy_term_data} WHERE tid IN (:tids)", array(':tids' => $tids));
+      foreach ($result as $term) {
+        if (isset($facets[$term->tid])) {
+          $facets[$term->tid]['#weight'] = $term->weight;
+        }
+      }
+
+      foreach ($facets as $tid => $field) {
+        if (!empty($field['#parent'])) {
+          // We will render it via its parent.
+          unset($facets[$tid]);
+        }
+      }
+    }
+
+    $items = apachesolr_search_nested_facet_items($query, $facets, $response->response->numFound);
+    // Process all terms into an item list
+    if ($items && ($response->response->numFound > 1 || $contains_active)) {
+      $initial_limits = variable_get('apachesolr_facet_query_initial_limits', array());
+      $limit = isset($initial_limits['apachesolr_search'][$delta]) ? $initial_limits['apachesolr_search'][$delta] : variable_get('apachesolr_facet_query_initial_limit_default', 10);
+      $output = theme('apachesolr_facet_list', array(
+        'items' => $items,
+        'display_limit' => $limit,
+        'delta' => $delta,
+      ));
+      $render = array(
+        'output' => array(
+          '#markup' => $output,
+        ),
+        '#contextual_links' => array(
+          'enabled_filters' => array('admin/config/search/apachesolr/enabled-filters', array($delta)),
+        ),
+      );
+      return array('subject' => $filter_by, 'content' => $render);
+    }
+  }
 }
 
 /**
@@ -1000,6 +1115,9 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
       // If this block is to be alphabetically/numerically sorted by value, change $sortpre.
       $sortpre = $facet_text;
     }
+    elseif (isset($facet_query_sorts['apachesolr_search'][$field_name]) && ($facet_query_sorts['apachesolr_search'][$field_name] == 'hierarchical')) {
+      $sortpre = $field['#weight'];
+    }
     else {
       $sortpre = 1000000 - $field['#count'];
     }
@@ -1007,10 +1125,10 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
     // Only display children if the block enables it or the parent is clicked.
     if ((isset($facet_show_children['apachesolr_search'][$field_name]) && $facet_show_children['apachesolr_search'][$field_name]) || (!empty($field['#children']) && $field['#active'] == TRUE)) {
       $link['children'] = apachesolr_search_nested_facet_items($query, $field['#children'], $num_found, $sort);
-      $link['class'] = "expanded-facet";
+      $link['class'][] = "expanded-facet";
     }
     elseif (!empty($field['#has_children'])) {
-      $link['class'] = "collapsed";
+      $link['class'][] = "collapsed";
     }
     $items[$sortpre . '*' . $facet_text . $field['#name'] . $field['#value']] = $link;
   }
