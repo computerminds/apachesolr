@@ -937,6 +937,17 @@ function apachesolr_search_collect_children($field) {
 }
 
 /**
+ * Generate a list including the field and all its parents.
+ */
+function apachesolr_search_collect_parents($field) {
+  $remove[] = $field;
+  if (!empty($field['#parent'])) {
+    $remove = array_merge($remove, apachesolr_search_collect_parents($field['#parent']));
+  }
+  return $remove;
+}
+
+/**
  * Generate the facet block for a taxonomy vid delta.
  */
 function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterface $query, $module, $delta, $filter_by, $facet_callback = FALSE, $field_info = NULL) {
@@ -998,7 +1009,7 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
         if (isset($facets[$term->parent])) {
           $facets[$term->parent]['#has_children'] = TRUE;
           if (isset($facets[$term->tid])) {
-            $facets[$term->tid]['#parent'] = $term->parent;
+            $facets[$term->tid]['#parent'] = &$facets[$term->parent];
             // Use a reference so we see the updated data.
             $facets[$term->parent]['#children'][] = &$facets[$term->tid];
           }
@@ -1011,11 +1022,11 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
       do {
         $added_active = FALSE;
         foreach ($facets as $tid => $field) {
-          if ($field['#active'] && $field['#parent'] && !$facets[$field['#parent']]['#expanded']) {
+          if ($field['#active'] && !empty($field['#parent']['#value']) && !$facets[$field['#parent']['#value']]['#expanded']) {
             // This parent has an active child, so mark as expanded (though not
             // necessarily active).
             $added_active = TRUE;
-            $facets[$field['#parent']]['#expanded'] = TRUE;
+            $facets[$field['#parent']['#value']]['#expanded'] = TRUE;
           }
         }
       } while ($added_active);
@@ -1077,6 +1088,7 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
 function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $facets, $num_found, $sort = TRUE) {
   $facet_query_sorts = variable_get('apachesolr_facet_query_sorts', array());
   $facet_show_children = variable_get('apachesolr_facet_show_children', array());
+  $operator_settings = variable_get('apachesolr_operator', array());
   $items = array();
   foreach ($facets as $field) {
     $facet_text = '';
@@ -1112,6 +1124,19 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
         'options' => $options));
     }
     else {
+      // Since items with child terms are returned when searching for a parent,
+      // don't show the child terms as active when using OR as the operator.
+      // Don't show parents as active either, so that less clicks are needed to
+      // drill down/up to which facet is required. (i.e. no need to untick terms
+      // that will always be included.)
+      if (isset($operator_settings['apachesolr_search'][$field_name]) && $operator_settings['apachesolr_search'][$field_name] == 'OR') {
+        foreach (apachesolr_search_collect_parents($field) as $parent) {
+          $new_query->remove_filter($parent['#name'], $parent['#value']);
+        }
+        foreach (apachesolr_search_collect_children($field) as $child) {
+          $new_query->remove_filter($child['#name'], $child['#value']);
+        }
+      }
       $new_query->add_filter($field['#name'], $field['#value']);
       $options = array('query' => $new_query->get_url_queryvalues());
       $link['data'] = theme('apachesolr_facet_link', array(
