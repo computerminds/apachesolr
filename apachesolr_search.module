@@ -1022,7 +1022,7 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
       do {
         $added_active = FALSE;
         foreach ($facets as $tid => $field) {
-          if ($field['#active'] && !empty($field['#parent']['#value']) && !$facets[$field['#parent']['#value']]['#expanded']) {
+          if (($field['#active'] || $field['#expanded']) && !empty($field['#parent']['#value']) && !$facets[$field['#parent']['#value']]['#expanded']) {
             // This parent has an active child, so mark as expanded (though not
             // necessarily active).
             $added_active = TRUE;
@@ -1169,7 +1169,7 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
 
     // Only display children if the block enables it or the parent is clicked.
     if (isset($facet_show_children['apachesolr_search'][$field_name]) && $facet_show_children['apachesolr_search'][$field_name] != APACHESOLR_SHOW_CHILDREN_WITHOUT_HIERARCHY) {
-      if ($facet_show_children['apachesolr_search'][$field_name] == APACHESOLR_SHOW_CHILDREN_ALWAYS || (!empty($field['#children']) && $field['#active'] == TRUE)) {
+      if ($facet_show_children['apachesolr_search'][$field_name] == APACHESOLR_SHOW_CHILDREN_ALWAYS || (!empty($field['#children']) && $field['#expanded'] == TRUE)) {
         $children = (!empty($field['#children'])) ? $field['#children'] : array();
         $link['children'] = apachesolr_search_nested_facet_items($query, $children, $num_found, $sort);
         $link['class'][] = "expanded-facet";
