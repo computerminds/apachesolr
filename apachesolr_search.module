@@ -982,6 +982,7 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
           '#children' => array(),
           '#has_children' => FALSE,
           '#active' => $active,
+          '#expanded' => $active,
         );
       }
     }
@@ -1010,11 +1011,11 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
       do {
         $added_active = FALSE;
         foreach ($facets as $tid => $field) {
-          if ($field['#active'] && $field['#parent'] && !$facets[$field['#parent']]['#active']) {
-            // This parent has an active child.
+          if ($field['#active'] && $field['#parent'] && !$facets[$field['#parent']]['#expanded']) {
+            // This parent has an active child, so mark as expanded (though not
+            // necessarily active).
             $added_active = TRUE;
-            $query->add_filter($delta, $field['#parent']);
-            $facets[$field['#parent']]['#active'] = TRUE;
+            $facets[$field['#parent']]['#expanded'] = TRUE;
           }
         }
       } while ($added_active);

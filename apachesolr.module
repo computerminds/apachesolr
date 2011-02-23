@@ -1027,7 +1027,7 @@ function apachesolr_form_block_admin_configure_alter(&$form, $form_state) {
   // If this facet is hierarchical, add option to disregard hierarchy, and clarify other options.
   if (isset($facet_info[$module][$delta]['hierarchical']) && $facet_info[$module][$delta]['hierarchical'] == TRUE) {
     $form['settings']['apachesolr_facet_show_children']['#title'] = t('Child facet display mode');
-    $form['settings']['apachesolr_facet_show_children']['#description'] = t('Parent/child facets may be shown in a hierarchy. Select how to show children. Hierarchy may not show in full when using the AND operator for this facet.');
+    $form['settings']['apachesolr_facet_show_children']['#description'] = t('Select how to display parent/child facets. Note that they will always act in a hierarchical manner, so searching for a parent term will always include child terms in the search. The hierarchy may not show in full when using the AND operator for this facet.');
     $form['settings']['apachesolr_facet_show_children']['#options'] = array(
       APACHESOLR_SHOW_CHILDREN_WITHOUT_HIERARCHY => t('Show children without using a hierarchy'),
       APACHESOLR_SHOW_CHILDREN_WHEN_SELECTED => t('Only show in hierarchy if parent facet is selected (default)'),
