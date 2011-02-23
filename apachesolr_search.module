@@ -816,13 +816,15 @@ function apachesolr_search_apachesolr_facets() {
         'content_types' => $field_info['bundles'],
     ) + $field_info;
 
-    // If we're a single hierarchical vocabulary, declare as such.
-    $vocabs = $field_info['field']['settings']['allowed_values'];
-    if ((count($vocabs) == 1)) {
-      $vocab = array_shift($vocabs);
-      $vocab = taxonomy_vocabulary_machine_name_load($vocab['vocabulary']);
-      if ($vocab->hierarchy == 1) {
-        $facets[$index_key]['hierarchical'] = TRUE;
+    // If we're a single hierarchical vocabulary, declare as hierarchical.
+    if ($field_info['field']['module'] == 'taxonomy' && $field_info['field']['type'] == 'taxonomy_term_reference') {
+      $vocabs = $field_info['field']['settings']['allowed_values'];
+      if ((count($vocabs) == 1)) {dsm($field_info);
+        $vocab = array_shift($vocabs);
+        $vocab = taxonomy_vocabulary_machine_name_load($vocab['vocabulary']);
+        if ($vocab->hierarchy == 1) {
+          $facets[$index_key]['hierarchical'] = TRUE;
+        }
       }
     }
   }
