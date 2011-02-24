@@ -994,6 +994,7 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
           '#has_children' => FALSE,
           '#active' => $active,
           '#expanded' => $active,
+          '#weight' => 0,
         );
       }
     }
@@ -1087,6 +1088,7 @@ function apachesolr_search_taxonomy_facet_block($response, DrupalSolrQueryInterf
  */
 function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $facets, $num_found, $sort = TRUE) {
   $facet_query_sorts = variable_get('apachesolr_facet_query_sorts', array());
+  $facet_sort_active = variable_get('apachesolr_facet_sort_active', array());
   $facet_show_children = variable_get('apachesolr_facet_show_children', array());
   $operator_settings = variable_get('apachesolr_operator', array());
   $items = array();
@@ -1148,7 +1150,9 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
         'num_found' => $num_found));
     }
 
-    if ($active) {
+    // Set default setting for sorting active facets first to 1.
+    $sort_by_active = (isset($facet_sort_active['apachesolr_search'][$field_name]) ? $facet_sort_active['apachesolr_search'][$field_name] : 1);
+    if ($active && $sort_by_active) {
       // '*' sorts before all numbers.
       $sortpre = '*';
     }
@@ -1161,10 +1165,10 @@ function apachesolr_search_nested_facet_items(DrupalSolrQueryInterface $query, $
       $sortpre = $facet_text;
     }
     elseif (isset($facet_query_sorts['apachesolr_search'][$field_name]) && strpos($facet_query_sorts['apachesolr_search'][$field_name], 'weight') === 0) {
-      $sortpre = $field['#weight'];
+      $sortpre = isset($field['#weight']) ? $field['#weight'] : 0;
     }
     else {
-      $sortpre = 1000000 - $field['#count'];
+      $sortpre = 1000000 - (isset($field['#count']) ? $field['#count'] : 0);
     }
 
     // Only display children if the block enables it or the parent is clicked.
